@@ -18,6 +18,11 @@
 #define PREF_MENU_TEXTCOLOR @"MenuColor"
 #define PREF_FAVORITES_ARRAY @"Favorites"
 
+// Automatic fan curves (temp→RPM). Curve points for fan N live under
+// the key [NSString stringWithFormat:PREF_FAN_CURVE_FMT, N].
+#define PREF_AUTOCURVE_ENABLED @"AutoCurveEnabled"
+#define PREF_FAN_CURVE_FMT @"fan_%d_curve"
+
 #define PREF_FAN_ARRAY @"FanData"
 #define PREF_FAN_TITLE @"Title"
 #define PREF_FAN_MINSPEED  @"Minspeed"

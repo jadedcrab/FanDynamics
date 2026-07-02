@@ -26,6 +26,7 @@
 #import "MachineDefaults.h"
 #import "SleepWakeFix.h"
 #import "OCLPHelper.h"
+#import "FanCurve.h"
 #import <Security/Authorization.h>
 #import <Security/AuthorizationDB.h>
 #import <Security/AuthorizationTags.h>
@@ -217,6 +218,8 @@ NSUserDefaults *defaults;
 	[faqText replaceCharactersInRange:NSMakeRange(0,0) withRTF: [NSData dataWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"F.A.Q" ofType:@"rtf"]]];
 	// Apply saved per-fan RPM settings (replaces old favorites-based apply)
 	[self applyPerFanSettings];
+	// Start the auto-curve control loop if it was enabled last session
+	[self updateAutoCurveState];
 	// Check for OCLP and prompt for boot daemon on first launch
 	[OCLPHelper checkAndPromptForDaemonInstall];
 	[[sliderCell dataCell] setControlSize:NSControlSizeSmall];
@@ -593,6 +596,19 @@ NSUserDefaults *defaults;
     // --- Separator ---
     [theMenu addItem:[NSMenuItem separatorItem]];
 
+    // --- Auto Fan Curves toggle ---
+    {
+        NSMenuItem *autoCurveItem = [[NSMenuItem alloc]
+            initWithTitle:@"Auto Fan Curves"
+                   action:@selector(toggleAutoCurves:)
+            keyEquivalent:@""];
+        [autoCurveItem setTarget:self];
+        if ([[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue]) {
+            [autoCurveItem setState:NSOnState];
+        }
+        [theMenu addItem:autoCurveItem];
+    }
+
     // --- OCLP Boot Fan Control toggle (only shown on OCLP Macs) ---
     if ([OCLPHelper isOCLPMac]) {
         NSString *oclpTitle = [OCLPHelper isDaemonInstalled]
@@ -782,6 +798,120 @@ NSUserDefaults *defaults;
     }
 }
 
+
+#pragma mark **Automatic Fan Curves**
+
+// Control-loop tuning. The loop runs every kAutoCurveInterval seconds; the
+// sensor temperature is smoothed with an exponential moving average
+// (kAutoCurveEMAAlpha) so short load spikes don't spin the fans up, and a
+// new RPM is only written to the SMC when it differs from the last written
+// value by at least kAutoCurveDeadbandRPM, so the fans don't hunt.
+static const NSTimeInterval kAutoCurveInterval = 5.0;
+static const float kAutoCurveEMAAlpha = 0.35f;
+static const int kAutoCurveDeadbandRPM = 75;
+
+/// Load per-fan curves from defaults, falling back to a conservative
+/// default curve based on each fan's hardware limits.
+-(void)loadFanCurves {
+    _fanCurves = [NSMutableArray arrayWithCapacity:g_numFans];
+    for (int i = 0; i < g_numFans; i++) {
+        int hwMin = [smcWrapper get_min_speed:i];
+        int hwMax = [smcWrapper get_max_speed:i];
+        NSArray *saved = [defaults objectForKey:[NSString stringWithFormat:PREF_FAN_CURVE_FMT, i]];
+        FanCurve *curve = saved ? [FanCurve curveWithPoints:saved] : nil;
+        if (!curve) {
+            curve = [FanCurve defaultCurveWithMinRPM:hwMin maxRPM:hwMax];
+        }
+        [_fanCurves addObject:curve];
+    }
+}
+
+/// Start or stop the control loop to match PREF_AUTOCURVE_ENABLED.
+-(void)updateAutoCurveState {
+    BOOL enabled = [[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue];
+    if (enabled && !_autoCurveTimer) {
+        [self loadFanCurves];
+        _autoLastWrittenRPM = [NSMutableArray arrayWithCapacity:g_numFans];
+        for (int i = 0; i < g_numFans; i++) {
+            [_autoLastWrittenRPM addObject:@(-1)];
+        }
+        _autoHasSmoothedTemp = NO;
+        _autoCurveTimer = [NSTimer scheduledTimerWithTimeInterval:kAutoCurveInterval
+                                                           target:self
+                                                         selector:@selector(autoCurveTick:)
+                                                         userInfo:nil
+                                                          repeats:YES];
+        [_autoCurveTimer setTolerance:1.0];
+        [_autoCurveTimer fire];
+    } else if (!enabled && _autoCurveTimer) {
+        [_autoCurveTimer invalidate];
+        _autoCurveTimer = nil;
+        // Hand control back to the user's saved per-fan settings.
+        [self applyPerFanSettings];
+    }
+}
+
+/// One iteration of the control loop: read the sensor, smooth it, map it
+/// through each fan's curve, and write RPM targets that changed enough.
+-(void)autoCurveTick:(id)caller {
+    if (_machineDefaultsDict == nil || g_numFans <= 0) {
+        return;
+    }
+
+    float tempC = [smcWrapper get_maintemp];
+    if (tempC <= 0.0f) {
+        return; // sensor read failed — keep last targets rather than react to garbage
+    }
+    if (!_autoHasSmoothedTemp) {
+        _autoSmoothedTemp = tempC;
+        _autoHasSmoothedTemp = YES;
+    } else {
+        _autoSmoothedTemp += kAutoCurveEMAAlpha * (tempC - _autoSmoothedTemp);
+    }
+
+    for (int i = 0; i < g_numFans && i < (int)[_fanCurves count]; i++) {
+        FanCurve *curve = _fanCurves[i];
+        int target = [curve rpmForTemperature:_autoSmoothedTemp];
+
+        // Clamp to hardware limits — never below Apple's default minimum.
+        int hwMin = [smcWrapper get_min_speed:i];
+        int hwMax = [smcWrapper get_max_speed:i];
+        if (hwMin <= 0) hwMin = 800;
+        if (hwMax <= hwMin) hwMax = hwMin + 4000;
+        if (target < hwMin) target = hwMin;
+        if (target > hwMax) target = hwMax;
+
+        int lastWritten = [_autoLastWrittenRPM[i] intValue];
+        if (lastWritten >= 0 && abs(target - lastWritten) < kAutoCurveDeadbandRPM) {
+            continue;
+        }
+
+        [FanControl setRights];
+        if (target <= hwMin) {
+            // At the bottom of the curve let the SMC manage the fan itself.
+            [self setForcedMode:NO forFan:i];
+            [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dMn", i]
+                                  value:[@(target) tohex]];
+        } else {
+            [self setForcedMode:YES forFan:i];
+            [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dTg", i]
+                                  value:[@(target) tohex]];
+            [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dMn", i]
+                                  value:[@(target) tohex]];
+        }
+        _autoLastWrittenRPM[i] = @(target);
+    }
+}
+
+/// Menu action: toggle automatic fan curves on/off.
+-(void)toggleAutoCurves:(id)sender {
+    BOOL enabled = ![[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue];
+    [defaults setObject:@(enabled) forKey:PREF_AUTOCURVE_ENABLED];
+    [self updateAutoCurveState];
+    if ([sender isKindOfClass:[NSMenuItem class]]) {
+        [(NSMenuItem *)sender setState:enabled ? NSOnState : NSOffState];
+    }
+}
 
 /// Open preferences window and force it to front.  LSUIElement apps need
 /// explicit activation since they have no Dock icon to click.
@@ -1156,6 +1286,7 @@ NSUserDefaults *defaults;
 	}
 	[smcWrapper cleanUp];
 	[_readTimer invalidate];
+	[_autoCurveTimer invalidate];
 	[pw deregisterForSleepWakeNotification];
 	[pw deregisterForPowerChange];
 	[[NSApplication sharedApplication] terminate:self];

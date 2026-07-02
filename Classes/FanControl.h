@@ -111,6 +111,13 @@
 	NSMutableArray *_fanSliders;       // array of NSSlider
 	NSMutableArray *_fanRPMLabels;     // array of NSTextField (RPM readout)
 	NSMutableArray *_fanMenuItems;     // array of NSMenuItem (with embedded view)
+
+	// Automatic fan curves
+	NSTimer *_autoCurveTimer;          // control-loop timer, independent of _readTimer
+	NSMutableArray *_fanCurves;        // array of FanCurve, one per fan
+	NSMutableArray *_autoLastWrittenRPM; // array of NSNumber — last RPM written per fan
+	float _autoSmoothedTemp;           // EMA-smoothed sensor temperature
+	BOOL _autoHasSmoothedTemp;         // NO until the first sample seeds the EMA
 }
 
 @property (nonatomic, strong ) 	NSMutableDictionary *machineDefaultsDict;
@@ -147,6 +154,11 @@
 - (void)setForcedMode:(BOOL)forced forFan:(int)fanIndex;
 - (void)toggleOCLPDaemon:(id)sender;
 - (void)openPreferences:(id)sender;
+
+// Automatic fan curves
+- (void)toggleAutoCurves:(id)sender;
+- (void)updateAutoCurveState;
+- (void)autoCurveTick:(id)caller;
 @end
 
 
