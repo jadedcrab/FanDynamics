@@ -580,6 +580,14 @@ NSUserDefaults *defaults;
     [prefsItem setTarget:self];
     [theMenu addItem:prefsItem];
 
+    // --- Buy Dev a Coffee ---
+    NSMenuItem *kofiItem = [[NSMenuItem alloc]
+        initWithTitle:@"☕ Buy Dev a Coffee"
+               action:@selector(openKofi:)
+        keyEquivalent:@""];
+    [kofiItem setTarget:self];
+    [theMenu addItem:kofiItem];
+
     // --- Separator ---
     [theMenu addItem:[NSMenuItem separatorItem]];
 
@@ -1269,6 +1277,11 @@ static const CGFloat kPaneHeight = 640.0;
 /// (Status, the dashboard, on first open).
 - (void)openPreferences:(id)sender {
     [self openSettingsTab:nil];
+}
+
+/// Menu action: open the Ko-fi page in the default browser.
+- (void)openKofi:(id)sender {
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://ko-fi.com/jadedcrab"]];
 }
 
 #pragma mark **Action-Methods**
