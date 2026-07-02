@@ -52,6 +52,14 @@ NS_ASSUME_NONNULL_BEGIN
 /// hwMin below 50°C ramping linearly to hwMax at 85°C.
 + (instancetype)defaultCurveWithMinRPM:(int)hwMin maxRPM:(int)hwMax;
 
+/// Built-in presets, defined as fractions of the hwMin→hwMax span so they
+/// adapt to any fan's hardware limits. Ordered quiet → aggressive.
++ (NSArray<NSString *> *)presetNames;
+
+/// Build the named preset scaled to the given limits. Returns nil for an
+/// unknown name.
++ (nullable instancetype)presetCurveNamed:(NSString *)name minRPM:(int)hwMin maxRPM:(int)hwMax;
+
 /// Piecewise-linear interpolation of the curve at the given temperature.
 - (int)rpmForTemperature:(float)tempC;
 

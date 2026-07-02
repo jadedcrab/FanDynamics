@@ -54,6 +54,43 @@
     ]];
 }
 
+/// Preset shapes as (tempC, fraction of the hwMin→hwMax span) pairs.
+/// Every preset ends at 1.0 so the fan can always reach hardware max when
+/// hot enough.
++ (NSDictionary<NSString *, NSArray *> *)presetShapes {
+    return @{
+        // Stays near minimum through typical loads; only spins up when hot.
+        @"Quiet": @[@[@50.0f, @0.0f], @[@70.0f, @0.10f], @[@80.0f, @0.32f],
+                    @[@88.0f, @0.65f], @[@95.0f, @1.0f]],
+        // Starts ramping earlier for lower steady-state temperatures.
+        @"Balanced": @[@[@45.0f, @0.0f], @[@60.0f, @0.15f], @[@75.0f, @0.45f],
+                       @[@85.0f, @0.75f], @[@92.0f, @1.0f]],
+        // Prioritizes temperature over noise; full speed by 80°C.
+        @"Cool": @[@[@40.0f, @0.10f], @[@55.0f, @0.35f], @[@70.0f, @0.70f],
+                   @[@80.0f, @1.0f]],
+        // The simple two-point ramp (same shape as the built-in default).
+        @"Basic Ramp": @[@[@50.0f, @0.0f], @[@85.0f, @1.0f]],
+    };
+}
+
++ (NSArray<NSString *> *)presetNames {
+    return @[@"Quiet", @"Balanced", @"Cool", @"Basic Ramp"];
+}
+
++ (nullable instancetype)presetCurveNamed:(NSString *)name minRPM:(int)hwMin maxRPM:(int)hwMax {
+    NSArray *shape = [self presetShapes][name];
+    if (!shape) return nil;
+    if (hwMin <= 0) hwMin = 800;
+    if (hwMax <= hwMin) hwMax = hwMin + 4000;
+    NSMutableArray *points = [NSMutableArray arrayWithCapacity:[shape count]];
+    for (NSArray *pair in shape) {
+        float frac = [pair[1] floatValue];
+        int rpm = hwMin + (int)lroundf(frac * (float)(hwMax - hwMin) / 10.0f) * 10;
+        [points addObject:@{CURVE_POINT_TEMP: pair[0], CURVE_POINT_RPM: @(rpm)}];
+    }
+    return [self curveWithPoints:points];
+}
+
 - (int)rpmForTemperature:(float)tempC {
     NSArray<NSDictionary *> *pts = _points;
     NSUInteger n = [pts count];

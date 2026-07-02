@@ -313,11 +313,16 @@ static CurveEditorController *sSharedEditor = nil;
     [removeBtn setToolTip:@"Remove the selected point (a curve needs at least two)"];
     [content addSubview:removeBtn];
 
-    // --- Restore default ---
-    NSButton *restoreBtn = [self buttonWithTitle:@"Restore Default Curve"
-                                           frame:NSMakeRect(W - 200, 52, 180, 26)
-                                          action:@selector(restoreDefault:)];
-    [content addSubview:restoreBtn];
+    // --- Preset picker (replaces the old Restore Default button) ---
+    NSPopUpButton *presetPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(W - 200, 52, 180, 26) pullsDown:YES];
+    [presetPopup addItemWithTitle:@"Load Preset…"]; // pull-down title item
+    for (NSString *name in [FanCurve presetNames]) {
+        [presetPopup addItemWithTitle:name];
+    }
+    [presetPopup setToolTip:@"Replace this fan's curve with a pre-built one (scaled to the fan's hardware limits)"];
+    [presetPopup setTarget:self];
+    [presetPopup setAction:@selector(loadPreset:)];
+    [content addSubview:presetPopup];
 
     // --- Hint ---
     NSTextField *hint = [self labelWithText:@"Changes apply immediately while Auto Fan Curves is enabled."
@@ -522,11 +527,14 @@ static CurveEditorController *sSharedEditor = nil;
     [self persistPoints];
 }
 
-- (void)restoreDefault:(id)sender {
-    [[self defaults] removeObjectForKey:
-        [NSString stringWithFormat:PREF_FAN_CURVE_FMT, _selectedFan]];
-    [[NSNotificationCenter defaultCenter] postNotificationName:NOTE_FAN_CURVES_CHANGED object:nil];
-    [self loadPointsForSelectedFan];
+- (void)loadPreset:(id)sender {
+    NSString *name = [[(NSPopUpButton *)sender selectedItem] title];
+    FanCurve *curve = [FanCurve presetCurveNamed:name
+                                          minRPM:[self trueMinSpeedForFan:_selectedFan]
+                                          maxRPM:[smcWrapper get_max_speed:_selectedFan]];
+    if (!curve) return; // title item or unknown name
+    _points = [[curve serialize] mutableCopy];
+    [self persistPoints];
 }
 
 #pragma mark Table data source
