@@ -99,20 +99,16 @@
 -(NSDictionary*)get_machine_defaults{
     
     if (!supported) {
-        NSAlert *alert = [[NSAlert alloc] init];
-        [alert setMessageText:NSLocalizedString(@"Alert!",nil)];
-        [alert setInformativeText:NSLocalizedString(@"smcFanControl has not been tested on this machine yet, but it should run if you follow the instructions. \n\nIf you choose to continue, please make sure you have no other FanControl-software running. Otherwise please quit, deinstall the other software, restart your machine and rerun smcFanControl!",nil)];
-        [alert addButtonWithTitle:NSLocalizedString(@"Continue",nil)];
-        [alert addButtonWithTitle:NSLocalizedString(@"Quit",nil)];
-		NSModalResponse code=[alert runModal];
-		if (code == NSAlertFirstButtonReturn) {
-			[self readFromSMC];
-            [self refreshPlist];
-		} else {
-			[[NSApplication sharedApplication] terminate:nil];
-		}
-		
-	}
+        // Unknown machine: snapshot its fan limits from the SMC and carry on.
+        // This used to be a modal alert, but a modal at launch blocks
+        // awakeFromNib and freezes every default-mode timer — on an
+        // unattended Mac the control loop never started while the alert sat
+        // invisible, and the fans stayed wherever they were. A menu bar app
+        // must never gate startup on a dialog.
+        NSLog(@"MachineDefaults: %@ not in Machines.plist — reading fan limits from SMC.", machine);
+        [self readFromSMC];
+        [self refreshPlist];
+    }
     
     NSDictionary *defaultsDict=[self readFromPlist];
     NSUInteger i;

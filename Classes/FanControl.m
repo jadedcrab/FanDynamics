@@ -772,12 +772,16 @@ static const int kAutoCurveDeadbandRPM = 75;
             [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dMn", i]
                                   value:[@([self trueMinSpeedForFan:i]) tohex]];
         }
-        _autoCurveTimer = [NSTimer scheduledTimerWithTimeInterval:kAutoCurveInterval
-                                                           target:self
-                                                         selector:@selector(autoCurveTick:)
-                                                         userInfo:nil
-                                                          repeats:YES];
+        // NSRunLoopCommonModes: default-mode timers freeze while a modal
+        // alert is up or the status menu is tracking — the control loop
+        // must keep running through both.
+        _autoCurveTimer = [NSTimer timerWithTimeInterval:kAutoCurveInterval
+                                                  target:self
+                                                selector:@selector(autoCurveTick:)
+                                                userInfo:nil
+                                                 repeats:YES];
         [_autoCurveTimer setTolerance:1.0];
+        [[NSRunLoop currentRunLoop] addTimer:_autoCurveTimer forMode:NSRunLoopCommonModes];
         [_autoCurveTimer fire];
     } else if (!enabled && _autoCurveTimer) {
         [_autoCurveTimer invalidate];
@@ -795,11 +799,26 @@ static const int kAutoCurveDeadbandRPM = 75;
         return;
     }
 
+    // Tolerate transient sensor failures, but never hold a forced RPM on a
+    // sensor that's gone dark — after 3 consecutive failures hand the fans
+    // back to SMC automatic control until reads recover.
+    static int sBadReads = 0;
     float tempC = [smcWrapper get_maintemp];
     if (tempC <= 0.0f) {
-        NSLog(@"autocurve: tick skipped (bad temp %.1f)", tempC);
-        return; // sensor read failed — keep last targets rather than react to garbage
+        sBadReads++;
+        NSLog(@"autocurve: tick skipped (bad temp %.1f, consecutive=%d)", tempC, sBadReads);
+        if (sBadReads == 3) {
+            NSLog(@"autocurve: sensor dark — releasing fans to SMC automatic control");
+            [FanControl setRights];
+            for (int i = 0; i < g_numFans; i++) {
+                [self setForcedMode:NO forFan:i];
+                _autoLastWrittenRPM[i] = @(-1);
+            }
+            _autoHasSmoothedTemp = NO;
+        }
+        return;
     }
+    sBadReads = 0;
     if (!_autoHasSmoothedTemp) {
         _autoSmoothedTemp = tempC;
         _autoHasSmoothedTemp = YES;
