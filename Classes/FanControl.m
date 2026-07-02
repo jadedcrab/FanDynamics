@@ -631,6 +631,16 @@ NSUserDefaults *defaults;
             keyEquivalent:@""];
         [editCurvesItem setTarget:self];
         [theMenu addItem:editCurvesItem];
+
+        NSMenuItem *menuInfoItem = [[NSMenuItem alloc]
+            initWithTitle:@"Show Temp & RPM in Menu Bar"
+                   action:@selector(toggleMenuInfo:)
+            keyEquivalent:@""];
+        [menuInfoItem setTarget:self];
+        if ([[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue] != 2) {
+            [menuInfoItem setState:NSOnState];
+        }
+        [theMenu addItem:menuInfoItem];
     }
 
     // --- OCLP Boot Fan Control toggle (only shown on OCLP Macs) ---
@@ -970,6 +980,20 @@ static const int kAutoCurveDeadbandRPM = 75;
 /// Menu action: open the curve editor window.
 -(void)openCurveEditor:(id)sender {
     [CurveEditorController showEditor];
+}
+
+/// Menu action: toggle the temp + RPM readout next to the menu bar icon.
+/// Flips between display mode 1 (temp + rpm) and 2 (icon only); modes 3/4
+/// (temp-only / rpm-only, set via Preferences) count as "on" and toggle off.
+-(void)toggleMenuInfo:(id)sender {
+    int mode = [[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue];
+    int newMode = (mode == 2) ? 1 : 2;
+    [defaults setObject:@(newMode) forKey:PREF_MENU_DISPLAYMODE];
+    if ([sender isKindOfClass:[NSMenuItem class]]) {
+        [(NSMenuItem *)sender setState:(newMode != 2) ? NSOnState : NSOffState];
+    }
+    // Re-arms the read timer for the new mode and fires it, refreshing the display.
+    [self updateTimerForDisplayMode:newMode];
 }
 
 /// Menu action: toggle automatic fan curves on/off.

@@ -35,11 +35,19 @@
 	NSWindow *_window;
 	NSPopUpButton *_fanPopup;
 	NSPopUpButton *_sensorPopup;
+	NSSegmentedControl *_unitsSeg;   // °C / °F display toggle
 	CurvePreviewView *_preview;
 	NSTableView *_pointsTable;
 	NSTimer *_refreshTimer;      // live sensor readout while window is open
 
+	// Selected-point editors (fields + up/down steppers)
+	NSTextField *_selTempField;
+	NSStepper *_selTempStepper;
+	NSTextField *_selRPMField;
+	NSStepper *_selRPMStepper;
+
 	int _selectedFan;
+	BOOL _useFahrenheit;         // display only — storage is always °C
 	NSMutableArray *_points;     // mutable copy of the selected fan's curve points
 }
 

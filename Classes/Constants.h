@@ -25,6 +25,8 @@
 // Posted by the curve editor after curves or the sensor selection change,
 // so the running control loop reloads them.
 #define NOTE_FAN_CURVES_CHANGED @"SMCFanCurvesChanged"
+// Curve editor temperature display unit (bool; absent → follow locale).
+#define PREF_CURVE_EDITOR_FAHRENHEIT @"CurveEditorFahrenheit"
 
 #define PREF_FAN_ARRAY @"FanData"
 #define PREF_FAN_TITLE @"Title"
