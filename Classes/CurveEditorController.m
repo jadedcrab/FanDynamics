@@ -23,6 +23,7 @@
 #import "CurveEditorController.h"
 #import "FanCurve.h"
 #import "smcWrapper.h"
+#import "MachineDefaults.h"
 #import "Constants.h"
 
 // Temperature range shown on the preview's x-axis.
@@ -339,12 +340,30 @@ static CurveEditorController *sSharedEditor = nil;
 
 #pragma mark Points model
 
+/// The fan's real hardware minimum from the machine-defaults snapshot.
+/// F0Mn is writable (the app itself sets it), so get_min_speed can't be
+/// trusted — same reasoning as FanControl's trueMinSpeedForFan:.
+- (int)trueMinSpeedForFan:(int)fanIndex {
+    static NSDictionary *sMachineDefaults = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        sMachineDefaults = [[[MachineDefaults alloc] init:nil] get_machine_defaults];
+    });
+    NSArray *fans = sMachineDefaults[@"Fans"];
+    if ([fans isKindOfClass:[NSArray class]] && fanIndex < (int)[fans count]) {
+        int v = [fans[fanIndex][PREF_FAN_MINSPEED] intValue];
+        if (v > 0) return v;
+    }
+    int v = [smcWrapper get_min_speed:fanIndex];
+    return (v > 0) ? v : 800;
+}
+
 - (void)loadPointsForSelectedFan {
     NSArray *saved = [[self defaults] objectForKey:
         [NSString stringWithFormat:PREF_FAN_CURVE_FMT, _selectedFan]];
     FanCurve *curve = saved ? [FanCurve curveWithPoints:saved] : nil;
     if (!curve) {
-        curve = [FanCurve defaultCurveWithMinRPM:[smcWrapper get_min_speed:_selectedFan]
+        curve = [FanCurve defaultCurveWithMinRPM:[self trueMinSpeedForFan:_selectedFan]
                                           maxRPM:[smcWrapper get_max_speed:_selectedFan]];
     }
     _points = [[curve serialize] mutableCopy];

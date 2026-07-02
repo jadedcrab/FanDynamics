@@ -31,6 +31,7 @@
 #import <Security/Authorization.h>
 #import <Security/AuthorizationDB.h>
 #import <Security/AuthorizationTags.h>
+#include <signal.h>
 // Sparkle removed — dead update server (eidac.de), will add GitHub-based updates later
 
 @interface FanControl ()
@@ -225,6 +226,17 @@ NSUserDefaults *defaults;
 	                                         selector:@selector(fanCurvesChanged:)
 	                                             name:NOTE_FAN_CURVES_CHANGED
 	                                           object:nil];
+	// SIGTERM (pkill, logout, shutdown) doesn't run the menu Quit path, which
+	// would leave the fans in forced mode. Route it through terminate: so the
+	// SMC gets handed back its fans.
+	signal(SIGTERM, SIG_IGN);
+	static dispatch_source_t sSigTermSource;
+	sSigTermSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
+	__weak typeof(self) weakSelf = self;
+	dispatch_source_set_event_handler(sSigTermSource, ^{
+		[weakSelf terminate:nil];
+	});
+	dispatch_resume(sSigTermSource);
 	// Check for OCLP and prompt for boot daemon on first launch
 	[OCLPHelper checkAndPromptForDaemonInstall];
 	[[sliderCell dataCell] setControlSize:NSControlSizeSmall];
@@ -822,15 +834,31 @@ static const NSTimeInterval kAutoCurveInterval = 5.0;
 static const float kAutoCurveEMAAlpha = 0.35f;
 static const int kAutoCurveDeadbandRPM = 75;
 
+/// The fan's real hardware minimum. F0Mn is a writable register that this
+/// app itself sets (slider, boot daemon, and formerly this loop), so reading
+/// it back via get_min_speed cannot be trusted as the hardware floor — that
+/// poisons the clamp and pins the fan at whatever was last written. The
+/// machine-defaults snapshot was taken before anything wrote to the SMC.
+-(int)trueMinSpeedForFan:(int)fanIndex {
+    NSArray *fans = _machineDefaultsDict[@"Fans"];
+    if ([fans isKindOfClass:[NSArray class]] && fanIndex < (int)[fans count]) {
+        int v = [fans[fanIndex][PREF_FAN_MINSPEED] intValue];
+        if (v > 0) return v;
+    }
+    int v = [smcWrapper get_min_speed:fanIndex];
+    return (v > 0) ? v : 800;
+}
+
 /// Load per-fan curves from defaults, falling back to a conservative
 /// default curve based on each fan's hardware limits.
 -(void)loadFanCurves {
     _fanCurves = [NSMutableArray arrayWithCapacity:g_numFans];
     for (int i = 0; i < g_numFans; i++) {
-        int hwMin = [smcWrapper get_min_speed:i];
+        int hwMin = [self trueMinSpeedForFan:i];
         int hwMax = [smcWrapper get_max_speed:i];
         NSArray *saved = [defaults objectForKey:[NSString stringWithFormat:PREF_FAN_CURVE_FMT, i]];
         FanCurve *curve = saved ? [FanCurve curveWithPoints:saved] : nil;
+        NSLog(@"autocurve: loadFanCurves fan=%d saved=%@ parsed=%@ hwMin=%d hwMax=%d", i, saved, curve, hwMin, hwMax);
         if (!curve) {
             curve = [FanCurve defaultCurveWithMinRPM:hwMin maxRPM:hwMax];
         }
@@ -841,6 +869,7 @@ static const int kAutoCurveDeadbandRPM = 75;
 /// Start or stop the control loop to match PREF_AUTOCURVE_ENABLED.
 -(void)updateAutoCurveState {
     BOOL enabled = [[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue];
+    NSLog(@"autocurve: updateAutoCurveState enabled=%d timer=%p", enabled, _autoCurveTimer);
     if (enabled && !_autoCurveTimer) {
         [self loadFanCurves];
         _autoLastWrittenRPM = [NSMutableArray arrayWithCapacity:g_numFans];
@@ -848,6 +877,13 @@ static const int kAutoCurveDeadbandRPM = 75;
             [_autoLastWrittenRPM addObject:@(-1)];
         }
         _autoHasSmoothedTemp = NO;
+        // Repair the minimum-speed floor before taking control: a previous
+        // session (or another fan tool) may have left F0Mn raised.
+        [FanControl setRights];
+        for (int i = 0; i < g_numFans; i++) {
+            [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dMn", i]
+                                  value:[@([self trueMinSpeedForFan:i]) tohex]];
+        }
         _autoCurveTimer = [NSTimer scheduledTimerWithTimeInterval:kAutoCurveInterval
                                                            target:self
                                                          selector:@selector(autoCurveTick:)
@@ -867,11 +903,13 @@ static const int kAutoCurveDeadbandRPM = 75;
 /// through each fan's curve, and write RPM targets that changed enough.
 -(void)autoCurveTick:(id)caller {
     if (_machineDefaultsDict == nil || g_numFans <= 0) {
+        NSLog(@"autocurve: tick skipped (defaults=%p fans=%d)", _machineDefaultsDict, g_numFans);
         return;
     }
 
     float tempC = [smcWrapper get_maintemp];
     if (tempC <= 0.0f) {
+        NSLog(@"autocurve: tick skipped (bad temp %.1f)", tempC);
         return; // sensor read failed — keep last targets rather than react to garbage
     }
     if (!_autoHasSmoothedTemp) {
@@ -886,9 +924,11 @@ static const int kAutoCurveDeadbandRPM = 75;
         int target = [curve rpmForTemperature:_autoSmoothedTemp];
 
         // Clamp to hardware limits — never below Apple's default minimum.
-        int hwMin = [smcWrapper get_min_speed:i];
+        // hwMin must come from the machine-defaults snapshot: F0Mn is
+        // writable and reading it back here poisons the clamp (pins the
+        // fan at whatever was last written).
+        int hwMin = [self trueMinSpeedForFan:i];
         int hwMax = [smcWrapper get_max_speed:i];
-        if (hwMin <= 0) hwMin = 800;
         if (hwMax <= hwMin) hwMax = hwMin + 4000;
         if (target < hwMin) target = hwMin;
         if (target > hwMax) target = hwMax;
@@ -897,18 +937,15 @@ static const int kAutoCurveDeadbandRPM = 75;
         if (lastWritten >= 0 && abs(target - lastWritten) < kAutoCurveDeadbandRPM) {
             continue;
         }
+        NSLog(@"autocurve: fan %d temp=%.1f smoothed=%.1f target=%d last=%d", i, tempC, _autoSmoothedTemp, target, lastWritten);
 
         [FanControl setRights];
         if (target <= hwMin) {
             // At the bottom of the curve let the SMC manage the fan itself.
             [self setForcedMode:NO forFan:i];
-            [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dMn", i]
-                                  value:[@(target) tohex]];
         } else {
             [self setForcedMode:YES forFan:i];
             [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dTg", i]
-                                  value:[@(target) tohex]];
-            [smcWrapper setKey_external:[NSString stringWithFormat:@"F%dMn", i]
                                   value:[@(target) tohex]];
         }
         _autoLastWrittenRPM[i] = @(target);
