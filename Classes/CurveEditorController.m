@@ -173,33 +173,39 @@ static CurveEditorController *sSharedEditor = nil;
 
 @implementation CurveEditorController
 
-+ (void)showEditor {
++ (CurveEditorController *)shared {
     if (!sSharedEditor) {
         sSharedEditor = [[CurveEditorController alloc] init];
-        [sSharedEditor buildWindow];
     }
-    [sSharedEditor show];
+    return sSharedEditor;
+}
+
+- (NSView *)editorView {
+    if (!_view) {
+        [self buildView];
+    }
+    return _view;
 }
 
 - (NSUserDefaults *)defaults {
     return [NSUserDefaults standardUserDefaults];
 }
 
-#pragma mark Window construction
+#pragma mark Pane construction
 
-- (void)buildWindow {
-    const CGFloat W = 460, H = 600;
-    _window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, W, H)
-                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                             NSWindowStyleMaskMiniaturizable)
-                    backing:NSBackingStoreBuffered
-                      defer:NO];
-    [_window setTitle:@"Fan Curves"];
-    [_window setReleasedWhenClosed:NO];
-    [_window setDelegate:self];
-    [_window center];
-    NSView *content = [_window contentView];
+- (void)buildView {
+    const CGFloat W = 460, H = 640;
+    _view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, W, H)];
+    NSView *content = _view;
+
+    // --- Enable toggle (same pref the menu item flips) ---
+    _enableCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, H - 36, 300, 20)];
+    [_enableCheckbox setButtonType:NSButtonTypeSwitch];
+    [_enableCheckbox setTitle:@"Automatic fan curves enabled"];
+    [_enableCheckbox setTarget:self];
+    [_enableCheckbox setAction:@selector(toggleEnabled:)];
+    [content addSubview:_enableCheckbox];
+    [self syncEnableState];
 
     // Display unit: explicit pref wins, otherwise follow the locale (same
     // detection the menu bar readout uses).
@@ -216,8 +222,8 @@ static CurveEditorController *sSharedEditor = nil;
     }
 
     // --- Fan picker ---
-    [content addSubview:[self labelWithText:@"Fan:" frame:NSMakeRect(20, H - 44, 60, 20)]];
-    _fanPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(86, H - 48, W - 106, 26) pullsDown:NO];
+    [content addSubview:[self labelWithText:@"Fan:" frame:NSMakeRect(20, H - 84, 60, 20)]];
+    _fanPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(86, H - 88, W - 106, 26) pullsDown:NO];
     int numFans = [smcWrapper get_fan_num];
     for (int i = 0; i < numFans; i++) {
         NSString *descr = [smcWrapper get_fan_descr:i];
@@ -229,16 +235,16 @@ static CurveEditorController *sSharedEditor = nil;
     [content addSubview:_fanPopup];
 
     // --- Sensor picker ---
-    [content addSubview:[self labelWithText:@"Sensor:" frame:NSMakeRect(20, H - 78, 60, 20)]];
-    _sensorPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(86, H - 82, W - 106, 26) pullsDown:NO];
+    [content addSubview:[self labelWithText:@"Sensor:" frame:NSMakeRect(20, H - 118, 60, 20)]];
+    _sensorPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(86, H - 122, W - 106, 26) pullsDown:NO];
     [self populateSensorPopup];
     [_sensorPopup setTarget:self];
     [_sensorPopup setAction:@selector(sensorSelected:)];
     [content addSubview:_sensorPopup];
 
     // --- Temperature unit toggle ---
-    [content addSubview:[self labelWithText:@"Units:" frame:NSMakeRect(20, H - 112, 60, 20)]];
-    _unitsSeg = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(86, H - 114, 130, 24)];
+    [content addSubview:[self labelWithText:@"Units:" frame:NSMakeRect(20, H - 152, 60, 20)]];
+    _unitsSeg = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(86, H - 154, 130, 24)];
     [_unitsSeg setSegmentCount:2];
     [_unitsSeg setLabel:@"°C" forSegment:0];
     [_unitsSeg setLabel:@"°F" forSegment:1];
@@ -637,9 +643,24 @@ static CurveEditorController *sSharedEditor = nil;
     [self setRPM:[_selRPMStepper intValue] forPointAtRow:[_pointsTable selectedRow]];
 }
 
-#pragma mark Show / close
+#pragma mark Enable toggle
 
-- (void)show {
+- (void)syncEnableState {
+    [_enableCheckbox setState:
+        [[[self defaults] objectForKey:PREF_AUTOCURVE_ENABLED] boolValue] ? NSOnState : NSOffState];
+}
+
+- (void)toggleEnabled:(id)sender {
+    BOOL enabled = ([_enableCheckbox state] == NSOnState);
+    [[self defaults] setObject:@(enabled) forKey:PREF_AUTOCURVE_ENABLED];
+    [[NSNotificationCenter defaultCenter] postNotificationName:NOTE_AUTOCURVE_STATE_CHANGED object:nil];
+}
+
+#pragma mark Display lifecycle
+
+- (void)prepareForDisplay {
+    [self editorView]; // make sure the pane exists
+    [self syncEnableState];
     [_fanPopup selectItemAtIndex:_selectedFan];
     [self loadPointsForSelectedFan];
     [self populateSensorPopup];
@@ -651,16 +672,17 @@ static CurveEditorController *sSharedEditor = nil;
                                                        userInfo:nil
                                                         repeats:YES];
     }
-    // LSUIElement app — needs explicit activation, same as openPreferences.
-    [NSApp activateIgnoringOtherApps:YES];
-    [_window makeKeyAndOrderFront:nil];
 }
 
 - (void)refreshTick:(id)caller {
+    // The pane may be in a hidden tab or closed window — skip SMC reads then.
+    if (![[_view window] isVisible]) {
+        return;
+    }
     [self refreshLiveReading];
 }
 
-- (void)windowWillClose:(NSNotification *)notification {
+- (void)displayDidHide {
     [_refreshTimer invalidate];
     _refreshTimer = nil;
 }

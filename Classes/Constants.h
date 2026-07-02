@@ -27,6 +27,9 @@
 #define NOTE_FAN_CURVES_CHANGED @"SMCFanCurvesChanged"
 // Curve editor temperature display unit (bool; absent → follow locale).
 #define PREF_CURVE_EDITOR_FAHRENHEIT @"CurveEditorFahrenheit"
+// Posted when PREF_AUTOCURVE_ENABLED is flipped from any UI (menu item or
+// settings checkbox) so every surface can resync and the loop starts/stops.
+#define NOTE_AUTOCURVE_STATE_CHANGED @"SMCAutoCurveStateChanged"
 
 #define PREF_FAN_ARRAY @"FanData"
 #define PREF_FAN_TITLE @"Title"

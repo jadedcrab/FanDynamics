@@ -40,7 +40,7 @@
 #define kMenuBarHeight				22
 
 
-@interface FanControl : NSObject <NSMenuDelegate>
+@interface FanControl : NSObject <NSMenuDelegate, NSTabViewDelegate>
 
 {
     IBOutlet id currentSpeed;
@@ -118,6 +118,12 @@
 	NSMutableArray *_autoLastWrittenRPM; // array of NSNumber — last RPM written per fan
 	float _autoSmoothedTemp;           // EMA-smoothed sensor temperature
 	BOOL _autoHasSmoothedTemp;         // NO until the first sample seeds the EMA
+
+	// Unified settings window (tabs: General = nib prefs content, Fan Curves)
+	NSWindow *_settingsWindow;
+	NSTabView *_settingsTabs;
+	NSSize _generalTabSize;            // natural size of each tab's content,
+	NSSize _curvesTabSize;             // captured before NSTabView resizes them
 }
 
 @property (nonatomic, strong ) 	NSMutableDictionary *machineDefaultsDict;
@@ -160,6 +166,7 @@
 - (void)updateAutoCurveState;
 - (void)autoCurveTick:(id)caller;
 - (void)openCurveEditor:(id)sender;
+- (void)openSettingsTab:(NSString *)identifier;
 @end
 
 

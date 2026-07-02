@@ -226,6 +226,10 @@ NSUserDefaults *defaults;
 	                                         selector:@selector(fanCurvesChanged:)
 	                                             name:NOTE_FAN_CURVES_CHANGED
 	                                           object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self
+	                                         selector:@selector(autoCurveStateChanged:)
+	                                             name:NOTE_AUTOCURVE_STATE_CHANGED
+	                                           object:nil];
 	// SIGTERM (pkill, logout, shutdown) doesn't run the menu Quit path, which
 	// would leave the fans in forced mode. Route it through terminate: so the
 	// SMC gets handed back its fans.
@@ -620,6 +624,7 @@ NSUserDefaults *defaults;
                    action:@selector(toggleAutoCurves:)
             keyEquivalent:@""];
         [autoCurveItem setTarget:self];
+        [autoCurveItem setTag:9901]; // found by autoCurveStateChanged: to sync the checkmark
         if ([[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue]) {
             [autoCurveItem setState:NSOnState];
         }
@@ -977,9 +982,103 @@ static const int kAutoCurveDeadbandRPM = 75;
     [self autoCurveTick:nil];
 }
 
-/// Menu action: open the curve editor window.
+#pragma mark **Settings Window**
+
+/// Build the unified tabbed settings window: the nib preferences content
+/// becomes the General tab and the curve editor pane the Fan Curves tab, so
+/// everything is reachable without going back to the menu bar.
+-(void)buildSettingsWindowIfNeeded {
+    if (_settingsWindow) return;
+
+    // Adopt the nib preferences content as the General tab. Capture its
+    // natural size first — NSTabView resizes tab views to fit.
+    NSView *generalView = [(NSWindow *)mainwindow contentView];
+    _generalTabSize = [generalView frame].size;
+    [(NSWindow *)mainwindow setContentView:[[NSView alloc] initWithFrame:NSZeroRect]];
+
+    NSView *curvesView = [[CurveEditorController shared] editorView];
+    _curvesTabSize = [curvesView frame].size;
+
+    _settingsWindow = [[NSWindow alloc]
+        initWithContentRect:NSMakeRect(0, 0, _generalTabSize.width + 20, _generalTabSize.height + 50)
+                  styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                             NSWindowStyleMaskMiniaturizable)
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
+    [_settingsWindow setTitle:@"smcFanControl CE"];
+    [_settingsWindow setReleasedWhenClosed:NO];
+
+    _settingsTabs = [[NSTabView alloc] initWithFrame:[[_settingsWindow contentView] bounds]];
+    [_settingsTabs setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [_settingsTabs setDelegate:self];
+
+    NSTabViewItem *generalTab = [[NSTabViewItem alloc] initWithIdentifier:@"general"];
+    [generalTab setLabel:@"General"];
+    [generalTab setView:generalView];
+    [_settingsTabs addTabViewItem:generalTab];
+
+    NSTabViewItem *curvesTab = [[NSTabViewItem alloc] initWithIdentifier:@"fancurves"];
+    [curvesTab setLabel:@"Fan Curves"];
+    [curvesTab setView:curvesView];
+    [_settingsTabs addTabViewItem:curvesTab];
+
+    [[_settingsWindow contentView] addSubview:_settingsTabs];
+    [_settingsWindow center];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(settingsWindowWillClose:)
+                                                 name:NSWindowWillCloseNotification
+                                               object:_settingsWindow];
+}
+
+/// Resize the settings window so the selected tab's content fits at its
+/// natural size, keeping the top-left corner anchored.
+-(void)sizeSettingsWindowForTab:(NSTabViewItem *)item animate:(BOOL)animate {
+    NSSize desired = [[item identifier] isEqualToString:@"fancurves"] ? _curvesTabSize : _generalTabSize;
+    NSSize tabFrame = [_settingsTabs frame].size;
+    NSSize tabContent = [_settingsTabs contentRect].size;
+    NSSize newContent = NSMakeSize(desired.width + (tabFrame.width - tabContent.width),
+                                   desired.height + (tabFrame.height - tabContent.height));
+    NSRect frame = [_settingsWindow frameRectForContentRect:
+        NSMakeRect(0, 0, newContent.width, newContent.height)];
+    NSRect current = [_settingsWindow frame];
+    frame.origin.x = current.origin.x;
+    frame.origin.y = NSMaxY(current) - frame.size.height;
+    [_settingsWindow setFrame:frame display:YES animate:animate];
+}
+
+-(void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
+    if (tabView != _settingsTabs) return;
+    [self sizeSettingsWindowForTab:tabViewItem animate:YES];
+    if ([[tabViewItem identifier] isEqualToString:@"fancurves"]) {
+        [[CurveEditorController shared] prepareForDisplay];
+    }
+}
+
+-(void)openSettingsTab:(NSString *)identifier {
+    [self buildSettingsWindowIfNeeded];
+    NSInteger idx = [_settingsTabs indexOfTabViewItemWithIdentifier:identifier];
+    if (idx != NSNotFound) {
+        [_settingsTabs selectTabViewItemAtIndex:idx];
+    }
+    // The delegate only fires on a tab *change* — handle the already-selected case too.
+    [self sizeSettingsWindowForTab:[_settingsTabs selectedTabViewItem] animate:NO];
+    if ([identifier isEqualToString:@"fancurves"]) {
+        [[CurveEditorController shared] prepareForDisplay];
+    }
+    // LSUIElement app — needs explicit activation since it has no Dock icon.
+    [NSApp activateIgnoringOtherApps:YES];
+    [_settingsWindow makeKeyAndOrderFront:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+}
+
+-(void)settingsWindowWillClose:(NSNotification *)note {
+    [[CurveEditorController shared] displayDidHide];
+}
+
+/// Menu action: open the settings window on the Fan Curves tab.
 -(void)openCurveEditor:(id)sender {
-    [CurveEditorController showEditor];
+    [self openSettingsTab:@"fancurves"];
 }
 
 /// Menu action: toggle the temp + RPM readout next to the menu bar icon.
@@ -996,22 +1095,26 @@ static const int kAutoCurveDeadbandRPM = 75;
     [self updateTimerForDisplayMode:newMode];
 }
 
-/// Menu action: toggle automatic fan curves on/off.
+/// Menu action: toggle automatic fan curves on/off. The settings checkbox
+/// flips the same pref; both surfaces converge in autoCurveStateChanged:.
 -(void)toggleAutoCurves:(id)sender {
     BOOL enabled = ![[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue];
     [defaults setObject:@(enabled) forKey:PREF_AUTOCURVE_ENABLED];
-    [self updateAutoCurveState];
-    if ([sender isKindOfClass:[NSMenuItem class]]) {
-        [(NSMenuItem *)sender setState:enabled ? NSOnState : NSOffState];
-    }
+    [[NSNotificationCenter defaultCenter] postNotificationName:NOTE_AUTOCURVE_STATE_CHANGED object:nil];
 }
 
-/// Open preferences window and force it to front.  LSUIElement apps need
-/// explicit activation since they have no Dock icon to click.
+/// The enabled pref changed from any UI: start/stop the loop and resync
+/// the menu checkmark and the settings checkbox.
+-(void)autoCurveStateChanged:(NSNotification *)note {
+    [self updateAutoCurveState];
+    BOOL enabled = [[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue];
+    [[theMenu itemWithTag:9901] setState:enabled ? NSOnState : NSOffState];
+    [[CurveEditorController shared] syncEnableState];
+}
+
+/// Menu action: open the settings window on the General tab.
 - (void)openPreferences:(id)sender {
-    [NSApp activateIgnoringOtherApps:YES];
-    [(NSWindow *)mainwindow makeKeyAndOrderFront:nil];
-    [NSApp activateIgnoringOtherApps:YES];
+    [self openSettingsTab:@"general"];
 }
 
 #pragma mark **Action-Methods**
@@ -1294,7 +1397,7 @@ static const int kAutoCurveDeadbandRPM = 75;
 - (IBAction)savePreferences:(id)sender{
 	[(NSUserDefaultsController *)DefaultsController save:sender];
 	[defaults synchronize];
-	[mainwindow close];
+	[_settingsWindow ? _settingsWindow : mainwindow close];
 	[self applyPerFanSettings];
 	[OCLPHelper syncFanSettingsWithDaemon];
 	undo_dic=[NSDictionary dictionaryWithDictionary:[defaults dictionaryRepresentation]];
@@ -1303,7 +1406,7 @@ static const int kAutoCurveDeadbandRPM = 75;
 
 
 - (IBAction)closePreferences:(id)sender{
-	[mainwindow close];
+	[_settingsWindow ? _settingsWindow : mainwindow close];
 	[DefaultsController revert:sender];
 	// Restore timer interval in case user changed display mode then cancelled.
 	[self updateTimerForDisplayMode:[[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue]];

@@ -3,7 +3,7 @@
  *
  *	Copyright (c) 2026 smcFanControl Community Edition contributors
  *
- *	CurveEditorController.h - editor window for automatic fan curves
+ *	CurveEditorController.h - editor pane for automatic fan curves
  *
  *	This program is free software; you can redistribute it and/or modify
  *	it under the terms of the GNU General Public License as published by
@@ -24,21 +24,23 @@
 
 @class CurvePreviewView;
 
-/// Window for editing per-fan temperature→RPM curves and picking the
-/// temperature sensor the control loop reads. Built programmatically —
-/// the app's nibs predate this feature.
+/// Editor pane for per-fan temperature→RPM curves: enable toggle, fan and
+/// sensor pickers, live preview, and a point table with steppers. Built
+/// programmatically — the app's nibs predate this feature. The pane is a
+/// plain NSView hosted as a tab of the unified settings window.
 ///
 /// Edits are saved to NSUserDefaults immediately and announced via
 /// NOTE_FAN_CURVES_CHANGED so a running control loop picks them up.
-@interface CurveEditorController : NSObject <NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate>
+@interface CurveEditorController : NSObject <NSTableViewDataSource, NSTableViewDelegate>
 {
-	NSWindow *_window;
+	NSView *_view;
+	NSButton *_enableCheckbox;       // mirrors PREF_AUTOCURVE_ENABLED
 	NSPopUpButton *_fanPopup;
 	NSPopUpButton *_sensorPopup;
 	NSSegmentedControl *_unitsSeg;   // °C / °F display toggle
 	CurvePreviewView *_preview;
 	NSTableView *_pointsTable;
-	NSTimer *_refreshTimer;      // live sensor readout while window is open
+	NSTimer *_refreshTimer;      // live sensor readout while the pane is visible
 
 	// Selected-point editors (fields + up/down steppers)
 	NSTextField *_selTempField;
@@ -51,7 +53,20 @@
 	NSMutableArray *_points;     // mutable copy of the selected fan's curve points
 }
 
-/// Show the shared editor window, creating it on first use.
-+ (void)showEditor;
++ (CurveEditorController *)shared;
+
+/// The pane's view (460×640), built on first access.
+- (NSView *)editorView;
+
+/// Call when the pane is about to be shown: refreshes pickers, points, and
+/// the live reading, and starts the readout timer.
+- (void)prepareForDisplay;
+
+/// Call when the hosting window closes: stops the readout timer.
+- (void)displayDidHide;
+
+/// Resync the enable checkbox from PREF_AUTOCURVE_ENABLED (e.g. after the
+/// menu item toggled it).
+- (void)syncEnableState;
 
 @end
