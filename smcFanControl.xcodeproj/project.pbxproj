@@ -514,8 +514,8 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_CODE_SIGN_FLAGS = "--deep";
-				PRODUCT_BUNDLE_IDENTIFIER = com.eidac.smcFanControl2;
-				PRODUCT_NAME = smcFanControl;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jadedcrab.fandynamics;
+				PRODUCT_NAME = FanDynamics;
 				PROVISIONING_PROFILE = "";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
@@ -554,8 +554,8 @@
 				OBJROOT = "$(HOME)/builds";
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_CODE_SIGN_FLAGS = "--deep";
-				PRODUCT_BUNDLE_IDENTIFIER = com.eidac.smcFanControl2;
-				PRODUCT_NAME = smcFanControl;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jadedcrab.fandynamics;
+				PRODUCT_NAME = FanDynamics;
 				PROVISIONING_PROFILE = "";
 				SDKROOT = macosx;
 				SYMROOT = "$(HOME)/builds";

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>English</string>
 	<key>CFBundleExecutable</key>
-	<string>smcFanControl</string>
+	<string>FanDynamics</string>
 	<key>CFBundleGetInfoString</key>
 	<string>smcFanControl Community Edition 2.6.1, GPL. Original by Hendrik Holtmann, community fork by wolffcatskyy.</string>
 	<key>CFBundleIconFile</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>smcFanControl</string>
+	<string>FanDynamics</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

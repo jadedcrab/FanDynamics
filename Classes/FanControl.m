@@ -533,11 +533,11 @@ NSUserDefaults *defaults;
     [statusItem setMenu:theMenu];
 
     if ([statusItem respondsToSelector:@selector(button)]) {
-        [statusItem.button setTitle:@"smc..."];
+        [statusItem.button setTitle:@"fan..."];
     } else {
         [statusItem setEnabled: YES];
         [statusItem setHighlightMode:YES];
-        [statusItem setTitle:@"smc..."];
+        [statusItem setTitle:@"fan..."];
     }
 
     // The pull-down stays minimal: the two quick toggles, Preferences, and
@@ -585,7 +585,7 @@ NSUserDefaults *defaults;
 
     // --- Quit ---
     NSMenuItem *quitItem = [[NSMenuItem alloc]
-        initWithTitle:@"Quit smcFanControl CE"
+        initWithTitle:@"Quit FanDynamics"
                action:@selector(terminate:)
         keyEquivalent:@""];
     [quitItem setTarget:self];
@@ -894,7 +894,7 @@ static const CGFloat kPaneHeight = 640.0;
                              NSWindowStyleMaskMiniaturizable)
                     backing:NSBackingStoreBuffered
                       defer:NO];
-    [_settingsWindow setTitle:@"smcFanControl CE"];
+    [_settingsWindow setTitle:@"FanDynamics"];
     [_settingsWindow setReleasedWhenClosed:NO];
 
     _settingsTabs = [[NSTabView alloc] initWithFrame:[[_settingsWindow contentView] bounds]];
