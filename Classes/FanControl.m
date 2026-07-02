@@ -642,6 +642,7 @@ NSUserDefaults *defaults;
                    action:@selector(toggleMenuInfo:)
             keyEquivalent:@""];
         [menuInfoItem setTarget:self];
+        [menuInfoItem setTag:9902]; // synced with the Status tab checkbox
         if ([[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue] != 2) {
             [menuInfoItem setState:NSOnState];
         }
@@ -984,23 +985,39 @@ static const int kAutoCurveDeadbandRPM = 75;
 
 #pragma mark **Settings Window**
 
-/// Build the unified tabbed settings window: the nib preferences content
-/// becomes the General tab and the curve editor pane the Fan Curves tab, so
-/// everything is reachable without going back to the menu bar.
+// Every pane is laid out on this canvas; the window is fixed-size and the
+// panes are top-centered inside the tab area.
+static const CGFloat kPaneWidth = 460.0;
+static const CGFloat kPaneHeight = 640.0;
+
+/// Host a fixed-size pane top-centered inside an auto-resizing container,
+/// so the fixed window's tab area can be slightly larger than the pane.
+-(NSView *)wrappedPane:(NSView *)pane {
+    NSView *container = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kPaneWidth + 16, kPaneHeight + 8)];
+    [container setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    NSRect f = [pane frame];
+    f.origin.x = ([container frame].size.width - f.size.width) / 2.0;
+    f.origin.y = [container frame].size.height - f.size.height;
+    [pane setFrame:f];
+    [pane setAutoresizingMask:(NSViewMinXMargin | NSViewMaxXMargin | NSViewMinYMargin)];
+    [container addSubview:pane];
+    return container;
+}
+
+/// Build the unified tabbed settings window. Fixed size, no per-tab
+/// resizing. Everything reachable from the menu bar pull-down also lives
+/// here: Status (live readings + manual sliders + menu bar toggle),
+/// Fan Curves (editor + enable toggle), General (the nib preferences
+/// content), Maintenance (Sleep/Wake Fix, OCLP boot daemon).
 -(void)buildSettingsWindowIfNeeded {
     if (_settingsWindow) return;
 
-    // Adopt the nib preferences content as the General tab. Capture its
-    // natural size first — NSTabView resizes tab views to fit.
+    // Adopt the nib preferences content as the General tab.
     NSView *generalView = [(NSWindow *)mainwindow contentView];
-    _generalTabSize = [generalView frame].size;
     [(NSWindow *)mainwindow setContentView:[[NSView alloc] initWithFrame:NSZeroRect]];
 
-    NSView *curvesView = [[CurveEditorController shared] editorView];
-    _curvesTabSize = [curvesView frame].size;
-
     _settingsWindow = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, _generalTabSize.width + 20, _generalTabSize.height + 50)
+        initWithContentRect:NSMakeRect(0, 0, kPaneWidth + 40, kPaneHeight + 64)
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                              NSWindowStyleMaskMiniaturizable)
                     backing:NSBackingStoreBuffered
@@ -1012,15 +1029,25 @@ static const int kAutoCurveDeadbandRPM = 75;
     [_settingsTabs setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
     [_settingsTabs setDelegate:self];
 
-    NSTabViewItem *generalTab = [[NSTabViewItem alloc] initWithIdentifier:@"general"];
-    [generalTab setLabel:@"General"];
-    [generalTab setView:generalView];
-    [_settingsTabs addTabViewItem:generalTab];
+    NSTabViewItem *statusTab = [[NSTabViewItem alloc] initWithIdentifier:@"status"];
+    [statusTab setLabel:@"Status"];
+    [statusTab setView:[self wrappedPane:[self buildStatusPane]]];
+    [_settingsTabs addTabViewItem:statusTab];
 
     NSTabViewItem *curvesTab = [[NSTabViewItem alloc] initWithIdentifier:@"fancurves"];
     [curvesTab setLabel:@"Fan Curves"];
-    [curvesTab setView:curvesView];
+    [curvesTab setView:[self wrappedPane:[[CurveEditorController shared] editorView]]];
     [_settingsTabs addTabViewItem:curvesTab];
+
+    NSTabViewItem *generalTab = [[NSTabViewItem alloc] initWithIdentifier:@"general"];
+    [generalTab setLabel:@"General"];
+    [generalTab setView:[self wrappedPane:generalView]];
+    [_settingsTabs addTabViewItem:generalTab];
+
+    NSTabViewItem *maintTab = [[NSTabViewItem alloc] initWithIdentifier:@"maintenance"];
+    [maintTab setLabel:@"Maintenance"];
+    [maintTab setView:[self wrappedPane:[self buildMaintenancePane]]];
+    [_settingsTabs addTabViewItem:maintTab];
 
     [[_settingsWindow contentView] addSubview:_settingsTabs];
     [_settingsWindow center];
@@ -1031,27 +1058,15 @@ static const int kAutoCurveDeadbandRPM = 75;
                                                object:_settingsWindow];
 }
 
-/// Resize the settings window so the selected tab's content fits at its
-/// natural size, keeping the top-left corner anchored.
--(void)sizeSettingsWindowForTab:(NSTabViewItem *)item animate:(BOOL)animate {
-    NSSize desired = [[item identifier] isEqualToString:@"fancurves"] ? _curvesTabSize : _generalTabSize;
-    NSSize tabFrame = [_settingsTabs frame].size;
-    NSSize tabContent = [_settingsTabs contentRect].size;
-    NSSize newContent = NSMakeSize(desired.width + (tabFrame.width - tabContent.width),
-                                   desired.height + (tabFrame.height - tabContent.height));
-    NSRect frame = [_settingsWindow frameRectForContentRect:
-        NSMakeRect(0, 0, newContent.width, newContent.height)];
-    NSRect current = [_settingsWindow frame];
-    frame.origin.x = current.origin.x;
-    frame.origin.y = NSMaxY(current) - frame.size.height;
-    [_settingsWindow setFrame:frame display:YES animate:animate];
-}
-
 -(void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)tabViewItem {
     if (tabView != _settingsTabs) return;
-    [self sizeSettingsWindowForTab:tabViewItem animate:YES];
-    if ([[tabViewItem identifier] isEqualToString:@"fancurves"]) {
+    NSString *ident = [tabViewItem identifier];
+    if ([ident isEqualToString:@"fancurves"]) {
         [[CurveEditorController shared] prepareForDisplay];
+    } else if ([ident isEqualToString:@"status"]) {
+        [self refreshStatusPane];
+    } else if ([ident isEqualToString:@"maintenance"]) {
+        [self syncOCLPUI];
     }
 }
 
@@ -1061,10 +1076,15 @@ static const int kAutoCurveDeadbandRPM = 75;
     if (idx != NSNotFound) {
         [_settingsTabs selectTabViewItemAtIndex:idx];
     }
-    // The delegate only fires on a tab *change* — handle the already-selected case too.
-    [self sizeSettingsWindowForTab:[_settingsTabs selectedTabViewItem] animate:NO];
-    if ([identifier isEqualToString:@"fancurves"]) {
-        [[CurveEditorController shared] prepareForDisplay];
+    // The delegate only fires on a tab *change* — refresh the landing tab too.
+    [self tabView:_settingsTabs didSelectTabViewItem:[_settingsTabs selectedTabViewItem]];
+    if (!_statusTimer) {
+        _statusTimer = [NSTimer scheduledTimerWithTimeInterval:5.0
+                                                        target:self
+                                                      selector:@selector(statusTimerTick:)
+                                                      userInfo:nil
+                                                       repeats:YES];
+        [_statusTimer setTolerance:1.0];
     }
     // LSUIElement app — needs explicit activation since it has no Dock icon.
     [NSApp activateIgnoringOtherApps:YES];
@@ -1074,6 +1094,245 @@ static const int kAutoCurveDeadbandRPM = 75;
 
 -(void)settingsWindowWillClose:(NSNotification *)note {
     [[CurveEditorController shared] displayDidHide];
+    [_statusTimer invalidate];
+    _statusTimer = nil;
+}
+
+#pragma mark **Status Pane**
+
+-(NSTextField *)statusLabel:(NSString *)text frame:(NSRect)frame size:(CGFloat)fontSize bold:(BOOL)bold {
+    NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
+    [label setStringValue:text];
+    [label setBezeled:NO];
+    [label setDrawsBackground:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setFont:bold ? [NSFont boldSystemFontOfSize:fontSize] : [NSFont systemFontOfSize:fontSize]];
+    return label;
+}
+
+/// Live readings (temp + per-fan RPM/target), the manual minimum-speed
+/// sliders from the menu, and the menu bar readout toggle.
+-(NSView *)buildStatusPane {
+    NSView *pane = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kPaneWidth, kPaneHeight)];
+    NSColor *gray = nil;
+    if (@available(macOS 10.14, *)) gray = [NSColor secondaryLabelColor];
+
+    CGFloat y = kPaneHeight - 40;
+
+    _statusSensorLabel = [self statusLabel:@"Temperature" frame:NSMakeRect(20, y, 420, 16) size:11 bold:NO];
+    if (gray) [_statusSensorLabel setTextColor:gray];
+    [pane addSubview:_statusSensorLabel];
+    y -= 44;
+
+    _statusTempLabel = [self statusLabel:@"—" frame:NSMakeRect(20, y, 420, 42) size:34 bold:YES];
+    [pane addSubview:_statusTempLabel];
+    y -= 34;
+
+    _statusFanRPMLabels = [NSMutableArray array];
+    _statusFanTargetLabels = [NSMutableArray array];
+    _statusFanSliders = [NSMutableArray array];
+
+    for (int i = 0; i < g_numFans; i++) {
+        NSString *descr = [smcWrapper get_fan_descr:i];
+        if ([descr length] == 0) descr = [NSString stringWithFormat:@"Fan %d", i];
+
+        NSTextField *name = [self statusLabel:descr frame:NSMakeRect(20, y, 280, 16) size:11 bold:NO];
+        if (gray) [name setTextColor:gray];
+        [pane addSubview:name];
+        y -= 26;
+
+        NSTextField *rpm = [self statusLabel:@"—" frame:NSMakeRect(20, y, 200, 24) size:20 bold:YES];
+        [pane addSubview:rpm];
+        [_statusFanRPMLabels addObject:rpm];
+
+        NSTextField *target = [self statusLabel:@"" frame:NSMakeRect(230, y + 2, 210, 16) size:11 bold:NO];
+        if (gray) [target setTextColor:gray];
+        [target setAlignment:NSTextAlignmentRight];
+        [pane addSubview:target];
+        [_statusFanTargetLabels addObject:target];
+        y -= 40;
+    }
+
+    y -= 8;
+    NSTextField *slidersHeader = [self statusLabel:@"Manual minimum speed" frame:NSMakeRect(20, y, 420, 16) size:11 bold:NO];
+    if (gray) [slidersHeader setTextColor:gray];
+    [pane addSubview:slidersHeader];
+    y -= 30;
+
+    for (int i = 0; i < g_numFans; i++) {
+        int hwMin = [self trueMinSpeedForFan:i];
+        int hwMax = [smcWrapper get_max_speed:i];
+        if (hwMax <= hwMin) hwMax = hwMin + 4000;
+        NSString *prefKey = [NSString stringWithFormat:@"fan_%d_min_rpm", i];
+        int saved = (int)[defaults integerForKey:prefKey];
+        if (saved < hwMin || saved > hwMax) saved = hwMin;
+
+        NSTextField *name = [self statusLabel:[NSString stringWithFormat:@"Fan %d", i]
+                                        frame:NSMakeRect(20, y, 60, 16) size:11 bold:NO];
+        [pane addSubview:name];
+
+        NSSlider *slider = [[NSSlider alloc] initWithFrame:NSMakeRect(84, y - 2, 270, 20)];
+        [slider setMinValue:hwMin];
+        [slider setMaxValue:hwMax];
+        [slider setIntegerValue:saved];
+        [slider setTag:i];
+        [slider setContinuous:NO];
+        [slider setTarget:self];
+        [slider setAction:@selector(statusSliderChanged:)];
+        [pane addSubview:slider];
+        [_statusFanSliders addObject:slider];
+        y -= 30;
+    }
+
+    _statusSliderHint = [self statusLabel:@"Sliders are disabled while automatic fan curves are on."
+                                    frame:NSMakeRect(20, y, 420, 14) size:10 bold:NO];
+    if (gray) [_statusSliderHint setTextColor:gray];
+    [pane addSubview:_statusSliderHint];
+
+    _statusMenuInfoCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(20, 20, 300, 20)];
+    [_statusMenuInfoCheckbox setButtonType:NSButtonTypeSwitch];
+    [_statusMenuInfoCheckbox setTitle:@"Show temp && RPM in menu bar"];
+    [_statusMenuInfoCheckbox setTarget:self];
+    [_statusMenuInfoCheckbox setAction:@selector(toggleMenuInfo:)];
+    [pane addSubview:_statusMenuInfoCheckbox];
+
+    [self syncStatusControls];
+    return pane;
+}
+
+/// Slider on the Status tab moved: route through the shared handler (tag =
+/// fan index), then reflect the resulting RPM in the readout.
+-(void)statusSliderChanged:(id)sender {
+    [self fanSliderChanged:sender];
+    [self refreshStatusPane];
+}
+
+-(void)statusTimerTick:(id)caller {
+    if (![_settingsWindow isVisible]) return;
+    if (![[[_settingsTabs selectedTabViewItem] identifier] isEqualToString:@"status"]) return;
+    [self refreshStatusPane];
+}
+
+-(void)refreshStatusPane {
+    if (!_statusTempLabel) return;
+
+    NSString *sensor = [defaults objectForKey:PREF_TEMPERATURE_SENSOR] ?: @"—";
+    [_statusSensorLabel setStringValue:[NSString stringWithFormat:@"Temperature (%@)", sensor]];
+
+    float tempC = [smcWrapper get_maintemp];
+    BOOL useF;
+    id unitPref = [defaults objectForKey:PREF_CURVE_EDITOR_FAHRENHEIT];
+    if (unitPref) {
+        useF = [unitPref boolValue];
+    } else {
+        NSString *tempUnit = [[NSLocale currentLocale] objectForKey:@"kCFLocaleTemperatureUnitKey"];
+        useF = tempUnit ? [tempUnit isEqualToString:@"Fahrenheit"]
+                        : ![[[NSLocale currentLocale] objectForKey:NSLocaleUsesMetricSystem] boolValue];
+    }
+    if (tempC > 0) {
+        float shown = useF ? (tempC * 9.0f / 5.0f + 32.0f) : tempC;
+        [_statusTempLabel setStringValue:[NSString stringWithFormat:@"%.1f °%@", shown, useF ? @"F" : @"C"]];
+    } else {
+        [_statusTempLabel setStringValue:@"—"];
+    }
+
+    BOOL autoOn = (_autoCurveTimer != nil);
+    for (int i = 0; i < g_numFans && i < (int)[_statusFanRPMLabels count]; i++) {
+        [(NSTextField *)_statusFanRPMLabels[i] setStringValue:
+            [NSString stringWithFormat:@"%d rpm", [smcWrapper get_fan_rpm:i]]];
+        NSString *targetText = @"manual / SMC automatic";
+        if (autoOn) {
+            int target = (i < (int)[_autoLastWrittenRPM count]) ? [_autoLastWrittenRPM[i] intValue] : -1;
+            targetText = (target > 0)
+                ? [NSString stringWithFormat:@"curve target: %d rpm", target]
+                : @"curve active";
+        }
+        [(NSTextField *)_statusFanTargetLabels[i] setStringValue:targetText];
+    }
+    [self syncStatusControls];
+}
+
+/// Enable/disable the manual sliders based on auto-curve state and sync the
+/// menu bar checkbox.
+-(void)syncStatusControls {
+    BOOL autoOn = [[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue];
+    for (NSSlider *slider in _statusFanSliders) {
+        [slider setEnabled:!autoOn];
+    }
+    [_statusSliderHint setHidden:!autoOn];
+    [_statusMenuInfoCheckbox setState:
+        ([[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue] != 2) ? NSOnState : NSOffState];
+}
+
+#pragma mark **Maintenance Pane**
+
+/// Sleep/Wake Fix and (on OCLP Macs) the boot fan daemon toggle.
+-(NSView *)buildMaintenancePane {
+    NSView *pane = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kPaneWidth, kPaneHeight)];
+    NSColor *gray = nil;
+    if (@available(macOS 10.14, *)) gray = [NSColor secondaryLabelColor];
+
+    CGFloat y = kPaneHeight - 40;
+
+    NSTextField *swHeader = [self statusLabel:@"Sleep/Wake" frame:NSMakeRect(20, y, 420, 16) size:11 bold:NO];
+    if (gray) [swHeader setTextColor:gray];
+    [pane addSubview:swHeader];
+    y -= 22;
+
+    NSTextField *swText = [self statusLabel:@"Fixes kernel panics on sleep for OCLP-patched Macs."
+                                      frame:NSMakeRect(20, y, 420, 16) size:12 bold:NO];
+    [pane addSubview:swText];
+    y -= 34;
+
+    NSButton *swButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, y, 180, 28)];
+    [swButton setTitle:@"Sleep/Wake Fix..."];
+    [swButton setBezelStyle:NSBezelStyleRounded];
+    [swButton setTarget:[SleepWakeFix class]];
+    [swButton setAction:@selector(showFixWindowFromMenu:)];
+    [pane addSubview:swButton];
+    y -= 56;
+
+    if ([OCLPHelper isOCLPMac]) {
+        NSTextField *oclpHeader = [self statusLabel:@"Boot Fan Control" frame:NSMakeRect(20, y, 420, 16) size:11 bold:NO];
+        if (gray) [oclpHeader setTextColor:gray];
+        [pane addSubview:oclpHeader];
+        y -= 22;
+
+        NSTextField *oclpText = [self statusLabel:@"Applies fan settings at boot, before login (OCLP daemon)."
+                                            frame:NSMakeRect(20, y, 420, 16) size:12 bold:NO];
+        [pane addSubview:oclpText];
+        y -= 30;
+
+        _maintOCLPButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, y, 300, 20)];
+        [_maintOCLPButton setButtonType:NSButtonTypeSwitch];
+        [_maintOCLPButton setTitle:@"Boot-time fan control enabled"];
+        [_maintOCLPButton setTarget:self];
+        [_maintOCLPButton setAction:@selector(toggleOCLPFromSettings:)];
+        [pane addSubview:_maintOCLPButton];
+        [self syncOCLPUI];
+    }
+
+    return pane;
+}
+
+-(void)toggleOCLPFromSettings:(id)sender {
+    if ([OCLPHelper isDaemonInstalled]) {
+        [OCLPHelper uninstallDaemon];
+    } else {
+        [OCLPHelper installDaemon];
+    }
+    [self syncOCLPUI];
+}
+
+/// Sync the maintenance checkbox and the menu bar item (tag 9999) with the
+/// actual daemon state.
+-(void)syncOCLPUI {
+    BOOL on = [OCLPHelper isDaemonInstalled];
+    [_maintOCLPButton setState:on ? NSOnState : NSOffState];
+    NSMenuItem *item = [theMenu itemWithTag:9999];
+    [item setTitle:on ? @"Boot Fan Control: On" : @"Boot Fan Control: Off"];
+    [item setState:on ? NSOnState : NSOffState];
 }
 
 /// Menu action: open the settings window on the Fan Curves tab.
@@ -1088,11 +1347,11 @@ static const int kAutoCurveDeadbandRPM = 75;
     int mode = [[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue];
     int newMode = (mode == 2) ? 1 : 2;
     [defaults setObject:@(newMode) forKey:PREF_MENU_DISPLAYMODE];
-    if ([sender isKindOfClass:[NSMenuItem class]]) {
-        [(NSMenuItem *)sender setState:(newMode != 2) ? NSOnState : NSOffState];
-    }
     // Re-arms the read timer for the new mode and fires it, refreshing the display.
     [self updateTimerForDisplayMode:newMode];
+    // Sync both surfaces (menu item + Status tab checkbox) from the pref.
+    [[theMenu itemWithTag:9902] setState:(newMode != 2) ? NSOnState : NSOffState];
+    [self syncStatusControls];
 }
 
 /// Menu action: toggle automatic fan curves on/off. The settings checkbox
@@ -1110,6 +1369,7 @@ static const int kAutoCurveDeadbandRPM = 75;
     BOOL enabled = [[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue];
     [[theMenu itemWithTag:9901] setState:enabled ? NSOnState : NSOffState];
     [[CurveEditorController shared] syncEnableState];
+    [self syncStatusControls]; // manual sliders disable while the loop runs
 }
 
 /// Menu action: open the settings window on the General tab.

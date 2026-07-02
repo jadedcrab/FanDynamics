@@ -119,11 +119,23 @@
 	float _autoSmoothedTemp;           // EMA-smoothed sensor temperature
 	BOOL _autoHasSmoothedTemp;         // NO until the first sample seeds the EMA
 
-	// Unified settings window (tabs: General = nib prefs content, Fan Curves)
+	// Unified settings window, fixed size.
+	// Tabs: Status, Fan Curves, General (nib prefs content), Maintenance.
 	NSWindow *_settingsWindow;
 	NSTabView *_settingsTabs;
-	NSSize _generalTabSize;            // natural size of each tab's content,
-	NSSize _curvesTabSize;             // captured before NSTabView resizes them
+
+	// Status tab: live readings, manual sliders, menu bar toggle
+	NSTimer *_statusTimer;
+	NSTextField *_statusSensorLabel;
+	NSTextField *_statusTempLabel;
+	NSMutableArray *_statusFanRPMLabels;    // NSTextField per fan
+	NSMutableArray *_statusFanTargetLabels; // NSTextField per fan
+	NSMutableArray *_statusFanSliders;      // NSSlider per fan
+	NSTextField *_statusSliderHint;
+	NSButton *_statusMenuInfoCheckbox;
+
+	// Maintenance tab
+	NSButton *_maintOCLPButton;
 }
 
 @property (nonatomic, strong ) 	NSMutableDictionary *machineDefaultsDict;
