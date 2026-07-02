@@ -26,6 +26,10 @@ xcodebuild -scheme smcFanControl -configuration Release ARCHS=x86_64 MACOSX_DEPL
 
 (The Xcode project retains its original internal name; the product it builds is `FanDynamics.app`.)
 
+## Support
+
+If FanDynamics keeps your Mac cool and quiet, you can [buy me a coffee on Ko-fi](https://ko-fi.com/jadedcrab). ☕
+
 ## Lineage & license
 
 FanDynamics is a fork of [smcFanControl Community Edition](https://github.com/wolffcatskyy/smcFanControl) (wolffcatskyy), itself a modernized fork of [smcFanControl](https://github.com/hholtmann/smcFanControl) by Hendrik Holtmann. The automatic curve engine, curve editor, presets, and unified settings window are new in FanDynamics; the SMC plumbing, OCLP support, and Sleep/Wake fix come from upstream. Bug fixes discovered here (broken link step from a clean clone; F0Mn min-speed register read back as the hardware floor) are candidates for upstreaming.

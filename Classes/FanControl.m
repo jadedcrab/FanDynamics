@@ -313,10 +313,10 @@ NSUserDefaults *defaults;
                 // Replace with clickable Ko-fi link
                 [tf setAllowsEditingTextAttributes:YES];
                 [tf setSelectable:YES];
-                NSString *linkText = @"Support smcFanControl CE on Ko-fi";
+                NSString *linkText = @"Support FanDynamics on Ko-fi";
                 NSMutableAttributedString *attrStr = [[NSMutableAttributedString alloc]
                     initWithString:linkText];
-                NSURL *kofiURL = [NSURL URLWithString:@"https://ko-fi.com/wolffcatskyy"];
+                NSURL *kofiURL = [NSURL URLWithString:@"https://ko-fi.com/jadedcrab"];
                 [attrStr addAttribute:NSLinkAttributeName value:kofiURL
                                 range:NSMakeRange(0, linkText.length)];
                 [attrStr addAttribute:NSFontAttributeName
