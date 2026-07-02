@@ -540,139 +540,37 @@ NSUserDefaults *defaults;
         [statusItem setTitle:@"smc..."];
     }
 
-    // --- Fan slider items ---
+    // The pull-down stays minimal: the two quick toggles, Preferences, and
+    // Quit. Everything else (sliders, curve editor, Sleep/Wake Fix, OCLP
+    // daemon) lives in the settings window.
     _fanSliderViews = [[NSMutableArray alloc] init];
     _fanSliders = [[NSMutableArray alloc] init];
     _fanRPMLabels = [[NSMutableArray alloc] init];
     _fanMenuItems = [[NSMutableArray alloc] init];
 
-    for (int i = 0; i < g_numFans; i++) {
-        int hwMin = [smcWrapper get_min_speed:i];
-        int hwMax = [smcWrapper get_max_speed:i];
-        if (hwMin <= 0) hwMin = 800;
-        if (hwMax <= hwMin) hwMax = hwMin + 4000;
-
-        NSString *descr = [smcWrapper get_fan_descr:i];
-
-        // Read saved value (or default to hardware minimum)
-        NSString *prefKey = [NSString stringWithFormat:@"fan_%d_min_rpm", i];
-        int savedRPM = (int)[[NSUserDefaults standardUserDefaults] integerForKey:prefKey];
-        if (savedRPM < hwMin || savedRPM > hwMax) savedRPM = hwMin;
-
-        // --- Build the custom view for this fan ---
-        CGFloat viewWidth = 260.0;
-        CGFloat viewHeight = 44.0;
-
-        NSView *rowView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, viewWidth, viewHeight)];
-
-        // Fan description label (top-left)
-        NSTextField *nameLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(14, 24, 160, 16)];
-        [nameLabel setStringValue:descr];
-        [nameLabel setBezeled:NO];
-        [nameLabel setDrawsBackground:NO];
-        [nameLabel setEditable:NO];
-        [nameLabel setSelectable:NO];
-        [nameLabel setFont:[NSFont systemFontOfSize:11 weight:NSFontWeightMedium]];
-        [nameLabel setTextColor:[NSColor secondaryLabelColor]];
-        [rowView addSubview:nameLabel];
-
-        // RPM label (top-right)
-        NSTextField *rpmLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(viewWidth - 80, 24, 66, 16)];
-        [rpmLabel setStringValue:[NSString stringWithFormat:@"%d rpm", savedRPM]];
-        [rpmLabel setBezeled:NO];
-        [rpmLabel setDrawsBackground:NO];
-        [rpmLabel setEditable:NO];
-        [rpmLabel setSelectable:NO];
-        [rpmLabel setAlignment:NSTextAlignmentRight];
-        [rpmLabel setFont:[NSFont monospacedDigitSystemFontOfSize:11 weight:NSFontWeightRegular]];
-        [rpmLabel setTextColor:[NSColor labelColor]];
-        [rowView addSubview:rpmLabel];
-
-        // Slider (bottom row)
-        NSSlider *slider = [[NSSlider alloc] initWithFrame:NSMakeRect(14, 4, viewWidth - 28, 18)];
-        [slider setMinValue:(double)hwMin];
-        [slider setMaxValue:(double)hwMax];
-        [slider setIntegerValue:savedRPM];
-        [slider setContinuous:YES];
-        [slider setTarget:self];
-        [slider setAction:@selector(fanSliderChanged:)];
-        [slider setTag:i]; // tag = fan index
-        if (@available(macOS 10.12, *)) {
-            [slider setControlSize:NSControlSizeSmall];
-        }
-        [rowView addSubview:slider];
-
-        // Create menu item with embedded view
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"" action:NULL keyEquivalent:@""];
-        [item setView:rowView];
-
-        [_fanSliderViews addObject:rowView];
-        [_fanSliders addObject:slider];
-        [_fanRPMLabels addObject:rpmLabel];
-        [_fanMenuItems addObject:item];
-
-        [theMenu addItem:item];
+    // --- Show Temp & RPM in Menu Bar toggle ---
+    NSMenuItem *menuInfoItem = [[NSMenuItem alloc]
+        initWithTitle:@"Show Temp & RPM in Menu Bar"
+               action:@selector(toggleMenuInfo:)
+        keyEquivalent:@""];
+    [menuInfoItem setTarget:self];
+    [menuInfoItem setTag:9902]; // synced with the Status tab checkbox
+    if ([[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue] != 2) {
+        [menuInfoItem setState:NSOnState];
     }
-
-    // --- Separator ---
-    [theMenu addItem:[NSMenuItem separatorItem]];
+    [theMenu addItem:menuInfoItem];
 
     // --- Auto Fan Curves toggle ---
-    {
-        NSMenuItem *autoCurveItem = [[NSMenuItem alloc]
-            initWithTitle:@"Auto Fan Curves"
-                   action:@selector(toggleAutoCurves:)
-            keyEquivalent:@""];
-        [autoCurveItem setTarget:self];
-        [autoCurveItem setTag:9901]; // found by autoCurveStateChanged: to sync the checkmark
-        if ([[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue]) {
-            [autoCurveItem setState:NSOnState];
-        }
-        [theMenu addItem:autoCurveItem];
-
-        NSMenuItem *editCurvesItem = [[NSMenuItem alloc]
-            initWithTitle:@"Edit Fan Curves..."
-                   action:@selector(openCurveEditor:)
-            keyEquivalent:@""];
-        [editCurvesItem setTarget:self];
-        [theMenu addItem:editCurvesItem];
-
-        NSMenuItem *menuInfoItem = [[NSMenuItem alloc]
-            initWithTitle:@"Show Temp & RPM in Menu Bar"
-                   action:@selector(toggleMenuInfo:)
-            keyEquivalent:@""];
-        [menuInfoItem setTarget:self];
-        [menuInfoItem setTag:9902]; // synced with the Status tab checkbox
-        if ([[defaults objectForKey:PREF_MENU_DISPLAYMODE] intValue] != 2) {
-            [menuInfoItem setState:NSOnState];
-        }
-        [theMenu addItem:menuInfoItem];
-    }
-
-    // --- OCLP Boot Fan Control toggle (only shown on OCLP Macs) ---
-    if ([OCLPHelper isOCLPMac]) {
-        NSString *oclpTitle = [OCLPHelper isDaemonInstalled]
-            ? @"Boot Fan Control: On"
-            : @"Boot Fan Control: Off";
-        NSMenuItem *oclpItem = [[NSMenuItem alloc]
-            initWithTitle:oclpTitle
-                   action:@selector(toggleOCLPDaemon:)
-            keyEquivalent:@""];
-        [oclpItem setTarget:self];
-        [oclpItem setTag:9999]; // unique tag to find it later
-        if ([OCLPHelper isDaemonInstalled]) {
-            [oclpItem setState:NSOnState];
-        }
-        [theMenu addItem:oclpItem];
-    }
-
-    // --- Sleep/Wake Fix... ---
-    NSMenuItem *sleepWakeItem = [[NSMenuItem alloc]
-        initWithTitle:@"Sleep/Wake Fix..."
-               action:@selector(showFixWindowFromMenu:)
+    NSMenuItem *autoCurveItem = [[NSMenuItem alloc]
+        initWithTitle:@"Auto Fan Curves"
+               action:@selector(toggleAutoCurves:)
         keyEquivalent:@""];
-    [sleepWakeItem setTarget:[SleepWakeFix class]];
-    [theMenu addItem:sleepWakeItem];
+    [autoCurveItem setTarget:self];
+    [autoCurveItem setTag:9901]; // found by autoCurveStateChanged: to sync the checkmark
+    if ([[defaults objectForKey:PREF_AUTOCURVE_ENABLED] boolValue]) {
+        [autoCurveItem setState:NSOnState];
+    }
+    [theMenu addItem:autoCurveItem];
 
     // --- Preferences... ---
     NSMenuItem *prefsItem = [[NSMenuItem alloc]
@@ -695,32 +593,6 @@ NSUserDefaults *defaults;
 }
 
 #pragma mark **OCLP Toggle**
-
-/// Toggle the OCLP boot fan control daemon on/off from the menu.
--(void)toggleOCLPDaemon:(id)sender {
-    NSMenuItem *item = (NSMenuItem *)sender;
-    if ([OCLPHelper isDaemonInstalled]) {
-        // Uninstall
-        BOOL ok = [OCLPHelper uninstallDaemon];
-        if (ok) {
-            [item setTitle:@"Boot Fan Control: Off"];
-            [item setState:NSOffState];
-        }
-    } else {
-        // Install
-        BOOL ok = [OCLPHelper installDaemon];
-        if (ok) {
-            [item setTitle:@"Boot Fan Control: On"];
-            [item setState:NSOnState];
-        } else {
-            NSAlert *alert = [[NSAlert alloc] init];
-            [alert setMessageText:@"Installation Failed"];
-            [alert setInformativeText:@"Could not install the boot fan control daemon. Admin access may be required."];
-            [alert addButtonWithTitle:@"OK"];
-            [alert runModal];
-        }
-    }
-}
 
 #pragma mark **Slider Menu Actions**
 
@@ -1072,7 +944,8 @@ static const CGFloat kPaneHeight = 640.0;
 
 -(void)openSettingsTab:(NSString *)identifier {
     [self buildSettingsWindowIfNeeded];
-    NSInteger idx = [_settingsTabs indexOfTabViewItemWithIdentifier:identifier];
+    // nil identifier → open on whatever tab was last selected.
+    NSInteger idx = identifier ? [_settingsTabs indexOfTabViewItemWithIdentifier:identifier] : NSNotFound;
     if (idx != NSNotFound) {
         [_settingsTabs selectTabViewItemAtIndex:idx];
     }
@@ -1320,19 +1193,20 @@ static const CGFloat kPaneHeight = 640.0;
     if ([OCLPHelper isDaemonInstalled]) {
         [OCLPHelper uninstallDaemon];
     } else {
-        [OCLPHelper installDaemon];
+        if (![OCLPHelper installDaemon]) {
+            NSAlert *alert = [[NSAlert alloc] init];
+            [alert setMessageText:@"Installation Failed"];
+            [alert setInformativeText:@"Could not install the boot fan control daemon. Admin access may be required."];
+            [alert addButtonWithTitle:@"OK"];
+            [alert runModal];
+        }
     }
     [self syncOCLPUI];
 }
 
-/// Sync the maintenance checkbox and the menu bar item (tag 9999) with the
-/// actual daemon state.
+/// Sync the maintenance checkbox with the actual daemon state.
 -(void)syncOCLPUI {
-    BOOL on = [OCLPHelper isDaemonInstalled];
-    [_maintOCLPButton setState:on ? NSOnState : NSOffState];
-    NSMenuItem *item = [theMenu itemWithTag:9999];
-    [item setTitle:on ? @"Boot Fan Control: On" : @"Boot Fan Control: Off"];
-    [item setState:on ? NSOnState : NSOffState];
+    [_maintOCLPButton setState:[OCLPHelper isDaemonInstalled] ? NSOnState : NSOffState];
 }
 
 /// Menu action: open the settings window on the Fan Curves tab.
@@ -1372,9 +1246,10 @@ static const CGFloat kPaneHeight = 640.0;
     [self syncStatusControls]; // manual sliders disable while the loop runs
 }
 
-/// Menu action: open the settings window on the General tab.
+/// Menu action: open the settings window on its last-selected tab
+/// (Status, the dashboard, on first open).
 - (void)openPreferences:(id)sender {
-    [self openSettingsTab:@"general"];
+    [self openSettingsTab:nil];
 }
 
 #pragma mark **Action-Methods**
