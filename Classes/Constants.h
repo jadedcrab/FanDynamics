@@ -22,6 +22,9 @@
 // the key [NSString stringWithFormat:PREF_FAN_CURVE_FMT, N].
 #define PREF_AUTOCURVE_ENABLED @"AutoCurveEnabled"
 #define PREF_FAN_CURVE_FMT @"fan_%d_curve"
+// Posted by the curve editor after curves or the sensor selection change,
+// so the running control loop reloads them.
+#define NOTE_FAN_CURVES_CHANGED @"SMCFanCurvesChanged"
 
 #define PREF_FAN_ARRAY @"FanData"
 #define PREF_FAN_TITLE @"Title"

@@ -27,6 +27,7 @@
 #import "SleepWakeFix.h"
 #import "OCLPHelper.h"
 #import "FanCurve.h"
+#import "CurveEditorController.h"
 #import <Security/Authorization.h>
 #import <Security/AuthorizationDB.h>
 #import <Security/AuthorizationTags.h>
@@ -220,6 +221,10 @@ NSUserDefaults *defaults;
 	[self applyPerFanSettings];
 	// Start the auto-curve control loop if it was enabled last session
 	[self updateAutoCurveState];
+	[[NSNotificationCenter defaultCenter] addObserver:self
+	                                         selector:@selector(fanCurvesChanged:)
+	                                             name:NOTE_FAN_CURVES_CHANGED
+	                                           object:nil];
 	// Check for OCLP and prompt for boot daemon on first launch
 	[OCLPHelper checkAndPromptForDaemonInstall];
 	[[sliderCell dataCell] setControlSize:NSControlSizeSmall];
@@ -607,6 +612,13 @@ NSUserDefaults *defaults;
             [autoCurveItem setState:NSOnState];
         }
         [theMenu addItem:autoCurveItem];
+
+        NSMenuItem *editCurvesItem = [[NSMenuItem alloc]
+            initWithTitle:@"Edit Fan Curves..."
+                   action:@selector(openCurveEditor:)
+            keyEquivalent:@""];
+        [editCurvesItem setTarget:self];
+        [theMenu addItem:editCurvesItem];
     }
 
     // --- OCLP Boot Fan Control toggle (only shown on OCLP Macs) ---
@@ -901,6 +913,26 @@ static const int kAutoCurveDeadbandRPM = 75;
         }
         _autoLastWrittenRPM[i] = @(target);
     }
+}
+
+/// Curves or the sensor selection changed (posted by the curve editor).
+/// Reload and re-evaluate immediately: reset the deadband history so new
+/// targets are written, and reseed the EMA in case the sensor changed.
+-(void)fanCurvesChanged:(NSNotification *)note {
+    if (!_autoCurveTimer) {
+        return;
+    }
+    [self loadFanCurves];
+    for (NSUInteger i = 0; i < [_autoLastWrittenRPM count]; i++) {
+        _autoLastWrittenRPM[i] = @(-1);
+    }
+    _autoHasSmoothedTemp = NO;
+    [self autoCurveTick:nil];
+}
+
+/// Menu action: open the curve editor window.
+-(void)openCurveEditor:(id)sender {
+    [CurveEditorController showEditor];
 }
 
 /// Menu action: toggle automatic fan curves on/off.

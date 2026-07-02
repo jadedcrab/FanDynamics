@@ -159,6 +159,7 @@
 - (void)toggleAutoCurves:(id)sender;
 - (void)updateAutoCurveState;
 - (void)autoCurveTick:(id)caller;
+- (void)openCurveEditor:(id)sender;
 @end
 
 

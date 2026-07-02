@@ -32,6 +32,7 @@
 		CE26A0012C5F000100AABB01 /* SleepWakeFix.m in Sources */ = {isa = PBXBuildFile; fileRef = CE26A0032C5F000100AABB01 /* SleepWakeFix.m */; };
 		CEFAC0DE0000000000000003 /* FanCurve.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAC0DE0000000000000002 /* FanCurve.m */; };
 		CEFAC0DE0000000000000006 /* OCLPHelper.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAC0DE0000000000000005 /* OCLPHelper.m */; };
+		CEFAC0DE0000000000000009 /* CurveEditorController.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAC0DE0000000000000008 /* CurveEditorController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -109,6 +110,8 @@
 		CEFAC0DE0000000000000002 /* FanCurve.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FanCurve.m; sourceTree = "<group>"; };
 		CEFAC0DE0000000000000004 /* OCLPHelper.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = OCLPHelper.h; sourceTree = "<group>"; };
 		CEFAC0DE0000000000000005 /* OCLPHelper.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = OCLPHelper.m; sourceTree = "<group>"; };
+		CEFAC0DE0000000000000007 /* CurveEditorController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = CurveEditorController.h; sourceTree = "<group>"; };
+		CEFAC0DE0000000000000008 /* CurveEditorController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = CurveEditorController.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -154,6 +157,8 @@
 				CEFAC0DE0000000000000002 /* FanCurve.m */,
 				CEFAC0DE0000000000000004 /* OCLPHelper.h */,
 				CEFAC0DE0000000000000005 /* OCLPHelper.m */,
+				CEFAC0DE0000000000000007 /* CurveEditorController.h */,
+				CEFAC0DE0000000000000008 /* CurveEditorController.m */,
 			);
 			path = Classes;
 			sourceTree = "<group>";
@@ -369,6 +374,7 @@
 				CE26A0012C5F000100AABB01 /* SleepWakeFix.m in Sources */,
 				CEFAC0DE0000000000000003 /* FanCurve.m in Sources */,
 				CEFAC0DE0000000000000006 /* OCLPHelper.m in Sources */,
+				CEFAC0DE0000000000000009 /* CurveEditorController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

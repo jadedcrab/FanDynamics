@@ -33,6 +33,7 @@
 
 +(int) get_fan_rpm:(int)fan_number;
 +(float) get_maintemp;
++(float) get_temp_for_sensor:(NSString *)sensor;
 +(float) get_mptemp;
 +(int) get_fan_num;
 +(int) get_min_speed:(int)fan_number;

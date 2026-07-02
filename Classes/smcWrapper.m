@@ -61,6 +61,16 @@ NSArray *allSensors;
     return (int)fval;
 }
 
+/// Read an arbitrary temperature sensor key. Returns -1 (or 129 on some
+/// iMacs) when the key doesn't exist or can't be read — callers should
+/// treat <=0 and 129 as invalid, same as readTempSensors does.
++(float)get_temp_for_sensor:(NSString *)sensor
+{
+    SMCVal_t val;
+    SMCReadKey2((char*)[sensor UTF8String], &val, conn);
+    return [self convertToNumber:val];
+}
+
 +(float)readTempSensors
 {
     float retValue;
