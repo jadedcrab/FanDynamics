@@ -2,7 +2,17 @@
 
 **Automatic, temperature-driven fan curves for Intel Macs — including OCLP-patched ones.**
 
+> **Beta.** FanDynamics works, but it has only been field-tested on two machines so far (a Macmini6,2 on OCLP Sonoma and a Macmini6,1 on Catalina). Fan hardware varies across Mac models — if something looks wrong on yours, quit the app (fans return to Apple's automatic control) and [open an issue](../../issues) with your model identifier.
+
 FanDynamics continuously maps a temperature sensor to fan RPM through a fully editable curve — the headline feature of paid fan utilities, free and open source. Define your curve (or pick a preset), and the fans follow the heat: quiet at idle, aggressive when it matters.
+
+## Download & install
+
+Grab the latest DMG from [Releases](../../releases), drag **FanDynamics** to Applications, and launch it.
+
+- The app is unsigned (no Apple Developer account), so on first launch **right-click the app → Open → Open**. If macOS still refuses: `xattr -cr /Applications/FanDynamics.app`.
+- On first launch it asks for an administrator password once, to give its SMC helper the rights to write fan speeds.
+- Requires an **Intel** Mac on macOS 10.13 or later.
 
 ## Features
 
