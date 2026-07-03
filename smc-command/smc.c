@@ -26,6 +26,11 @@
 #include "smc.h"
 #include <os/lock.h>
 
+// kIOMainPortDefault only exists on macOS 12+; on older systems the weak
+// import resolves to NULL and dereferencing it crashes. MACH_PORT_NULL is
+// documented to mean "the default main port" on every macOS version.
+#define SMC_IOKIT_PORT MACH_PORT_NULL
+
 // Cache the keyInfo to lower the energy impact of SMCReadKey() / SMCReadKey2()
 #define KEY_INFO_CACHE_SIZE 100
 struct {
@@ -291,7 +296,7 @@ kern_return_t SMCOpen(io_connect_t *conn)
     io_object_t   device;
 
     CFMutableDictionaryRef matchingDictionary = IOServiceMatching("AppleSMC");
-    result = IOServiceGetMatchingServices(kIOMainPortDefault, matchingDictionary, &iterator);
+    result = IOServiceGetMatchingServices(SMC_IOKIT_PORT, matchingDictionary, &iterator);
     if (result != kIOReturnSuccess)
     {
         printf("Error: IOServiceGetMatchingServices() = %08x\n", result);

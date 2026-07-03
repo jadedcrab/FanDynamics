@@ -141,7 +141,8 @@ static kern_return_t smc_open(io_connect_t *conn)
     io_object_t device;
 
     CFMutableDictionaryRef matching = IOServiceMatching("AppleSMC");
-    result = IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator);
+    // MACH_PORT_NULL = default port on every macOS; kIOMainPortDefault needs 12+
+    result = IOServiceGetMatchingServices(MACH_PORT_NULL, matching, &iterator);
     if (result != kIOReturnSuccess) {
         log_msg("error: IOServiceGetMatchingServices() = 0x%08x", result);
         return result;
